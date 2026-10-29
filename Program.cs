@@ -40,13 +40,21 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddMemoryCache();
 builder.Services.Configure<EmailOptions>(cfg.GetSection("Email"));
 builder.Services.Configure<ReminderOptions>(cfg.GetSection("Reminders"));
-if (!string.IsNullOrWhiteSpace(cfg["Email:Host"])) builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
-else builder.Services.AddScoped<IEmailSender, LoggingEmailSender>();
+builder.Services.Configure<NotificationOptions>(cfg.GetSection("Notifications"));
+var emailSettings = cfg.GetSection("Email").Get<EmailOptions>() ?? new EmailOptions();
+if (!emailSettings.IsConfigured) builder.Services.AddScoped<IEmailSender, LoggingEmailSender>();
+else if (emailSettings.UsesBrevoApi)
+{
+    builder.Services.AddHttpClient(BrevoEmailSender.ClientName, c => c.Timeout = TimeSpan.FromSeconds(30));
+    builder.Services.AddScoped<IEmailSender, BrevoEmailSender>();
+}
+else builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
 
 builder.Services.AddSingleton<PasswordService>();
 builder.Services.AddSingleton<ApiTokenService>();
 builder.Services.AddSingleton<IUserStateCache, UserStateCache>();
 builder.Services.AddSingleton<ICampaignQueue, CampaignQueue>();
+builder.Services.AddSingleton<IEmailQueue, EmailQueue>();
 builder.Services.AddSingleton<IAuthorizationHandler, ActiveUserHandler>();
 builder.Services.AddScoped<ICurrentUser, CurrentUser>();
 builder.Services.AddScoped<AppUrls>();
@@ -65,6 +73,7 @@ builder.Services.AddScoped<SearchService>();
 builder.Services.AddScoped<FormConnectionService>();
 builder.Services.AddScoped<FormIngestService>();
 builder.Services.AddHostedService<CampaignSenderWorker>();
+builder.Services.AddHostedService<EmailDispatchWorker>();
 builder.Services.AddHostedService<ReminderWorker>();
 
 // ---------------------------------------------------------------- authentication
@@ -199,10 +208,19 @@ await DbSeeder.InitialiseAsync(app.Services);
 // Make the email mode obvious in the log at startup.
 {
     var startupLog = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Startup");
-    if (string.IsNullOrWhiteSpace(cfg["Email:Host"]))
+    var startupEmail = cfg.GetSection("Email").Get<EmailOptions>() ?? new EmailOptions();
+    if (!startupEmail.IsConfigured)
         startupLog.LogWarning("Email is NOT configured: emails (password resets, campaigns) are only logged. Set the Email section to send for real.");
+    else if (startupEmail.UsesBrevoApi)
+        startupLog.LogInformation("Email is configured: sending through the Brevo API as {From}.", startupEmail.FromAddress);
     else
+    {
         startupLog.LogInformation("Email is configured: sending via {Host}:{Port} as {From}.", cfg["Email:Host"], cfg["Email:Port"], cfg["Email:FromAddress"]);
+        if (cfg.GetValue("Email:Port", 587) == 465)
+            startupLog.LogWarning("Email:Port is 465, which the built-in mail client does not support. Use 587 with Email:UseSsl=true.");
+        if (!string.IsNullOrWhiteSpace(cfg["Email:Username"]) && string.IsNullOrWhiteSpace(cfg["Email:Password"]))
+            startupLog.LogWarning("Email:Username is set but Email:Password is empty, so the mail server will probably refuse to send.");
+    }
     if (!isDev && string.IsNullOrWhiteSpace(cfg["App:PublicBaseUrl"]))
         startupLog.LogWarning("App:PublicBaseUrl is empty: links in emails and the form webhook URL will use the request host. Set it to your public HTTPS address.");
 }

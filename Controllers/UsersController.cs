@@ -114,9 +114,11 @@ public class UsersController : AppController
     }
 
     [HttpGet]
-    public async Task<IActionResult> Audit(string? q, string? action, int page = 1)
+    public async Task<IActionResult> Audit(string? q, [FromQuery(Name = "action")] string? actionFilter, int page = 1)
     {
-        ViewBag.Q = q; ViewBag.Action = action; ViewBag.Actions = await _audit.ActionsAsync();
-        return View(await _audit.SearchAsync(q, action, page, 50));
+        // NOTE: a plain parameter called "action" would bind to the MVC route value ("Audit") instead of the
+        // ?action= query string, so every filtered/unfiltered view would show nothing. Bind explicitly from the query.
+        ViewBag.Q = q; ViewBag.Action = actionFilter; ViewBag.Actions = await _audit.ActionsAsync();
+        return View(await _audit.SearchAsync(q, actionFilter, page, 50));
     }
 }

@@ -222,7 +222,10 @@ document.addEventListener('DOMContentLoaded', function () {
     btn.addEventListener('click', function () {
       var input = document.getElementById(btn.getAttribute('data-toggle-password')); if (!input) return;
       input.type = input.type === 'password' ? 'text' : 'password';
-      btn.setAttribute('aria-pressed', input.type === 'text' ? 'true' : 'false');
+      var shown = input.type === 'text';
+      btn.setAttribute('aria-pressed', shown ? 'true' : 'false');
+      btn.setAttribute('aria-label', shown ? 'Hide password' : 'Show password');
+      btn.textContent = shown ? 'Hide' : 'Show';
     });
   });
 

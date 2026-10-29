@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using UncoveringGreatnessCRM.Data;
 using UncoveringGreatnessCRM.Domain;
 using UncoveringGreatnessCRM.Models;
@@ -74,15 +75,39 @@ public class NotificationService : INotificationService
 {
     private readonly AppDbContext _db;
     private readonly ICurrentUser _me;
-    public NotificationService(AppDbContext db, ICurrentUser me) { _db = db; _me = me; }
+    private readonly IEmailQueue _emails;
+    private readonly AppUrls _urls;
+    private readonly NotificationOptions _options;
+    private readonly ILogger<NotificationService> _log;
+
+    public NotificationService(AppDbContext db, ICurrentUser me, IEmailQueue emails, AppUrls urls, IOptions<NotificationOptions> options, ILogger<NotificationService> log)
+    { _db = db; _me = me; _emails = emails; _urls = urls; _options = options.Value; _log = log; }
 
     public async Task<bool> NotifyAsync(int userId, NotificationType type, string title, string? body, string? link, string? dedupeKey = null)
     {
         if (dedupeKey != null && await _db.Notifications.AnyAsync(n => n.UserId == userId && n.DedupeKey == dedupeKey)) return false;
         var n = new Notification { UserId = userId, Type = type, Title = title, Body = body, LinkUrl = link, DedupeKey = dedupeKey };
         _db.Notifications.Add(n);
-        try { await _db.SaveChangesAsync(); return true; }
+        try { await _db.SaveChangesAsync(); }
         catch (DbUpdateException) when (dedupeKey != null) { _db.Entry(n).State = EntityState.Detached; return false; }
+
+        // Something just happened to this person (no dedupe key): email them as well as notifying them in the app.
+        // Scheduled reminders always carry a dedupe key and are emailed once, as a digest, by the ReminderWorker instead.
+        if (dedupeKey == null && _options.EmailEnabled) await QueueEmailAsync(userId, title, body, link);
+        return true;
+    }
+
+    /// <summary>Hands the message to the background sender. Emailing must never break the action that caused the notification.</summary>
+    private async Task QueueEmailAsync(int userId, string title, string? body, string? link)
+    {
+        try
+        {
+            var person = await _db.Users.AsNoTracking().Where(u => u.Id == userId && u.IsActive).Select(u => new { u.FullName, u.Email }).FirstOrDefaultAsync();
+            if (person is null || string.IsNullOrWhiteSpace(person.Email)) return;
+            var (html, text) = NotificationEmail.Build(person.FullName, title, body, string.IsNullOrWhiteSpace(link) ? null : _urls.Absolute(link));
+            _emails.Enqueue(new QueuedEmail(person.Email, NotificationEmail.CleanSubject(title), html, text));
+        }
+        catch (Exception ex) { _log.LogWarning(ex, "Could not queue the notification email for user {UserId}", userId); }
     }
 
     public async Task NotifyManyAsync(IEnumerable<int> userIds, NotificationType type, string title, string? body, string? link, string? dedupeKey = null)
@@ -148,7 +173,16 @@ public class EmailOptions
     public bool UseSsl { get; set; } = true;
     public string FromAddress { get; set; } = "no-reply@uncoveringgreatness.co.za";
     public string FromName { get; set; } = "Uncovering Greatness";
-    public bool IsConfigured => !string.IsNullOrWhiteSpace(Host);
+
+    /// <summary>"Smtp" (default) or "Brevo". Brevo sends over HTTPS, so it works where outgoing SMTP ports are blocked (for example Render's free plan).</summary>
+    public string? Provider { get; set; }
+    /// <summary>The Brevo API key (Brevo: SMTP &amp; API → API keys). Only used for the Brevo provider.</summary>
+    public string? ApiKey { get; set; }
+
+    /// <summary>True when Provider is "Brevo", or an API key is given without an SMTP host.</summary>
+    public bool UsesBrevoApi => string.Equals(Provider, "Brevo", StringComparison.OrdinalIgnoreCase)
+                                || (!string.IsNullOrWhiteSpace(ApiKey) && string.IsNullOrWhiteSpace(Host));
+    public bool IsConfigured => UsesBrevoApi ? !string.IsNullOrWhiteSpace(ApiKey) : !string.IsNullOrWhiteSpace(Host);
 }
 
 public interface IEmailSender
@@ -177,7 +211,47 @@ public class SmtpEmailSender : IEmailSender
     }
 }
 
-/// <summary>Used when no SMTP host is configured (development): nothing leaves the machine; the message is logged.</summary>
+/// <summary>
+/// Sends through Brevo's HTTPS API (POST https://api.brevo.com/v3/smtp/email). Plain HTTPS on port 443, so it is not affected by
+/// hosts that block SMTP ports. The From address must be a sender verified in the Brevo account.
+/// </summary>
+public class BrevoEmailSender : IEmailSender
+{
+    public const string Endpoint = "https://api.brevo.com/v3/smtp/email";
+    public const string ClientName = "brevo";
+
+    private readonly EmailOptions _o;
+    private readonly IHttpClientFactory _http;
+    public BrevoEmailSender(Microsoft.Extensions.Options.IOptions<EmailOptions> o, IHttpClientFactory http) { _o = o.Value; _http = http; }
+    public bool IsSimulated => false;
+
+    public async Task SendAsync(string to, string subject, string htmlBody, string textBody, CancellationToken ct = default)
+    {
+        var payload = new
+        {
+            sender = new { name = _o.FromName, email = _o.FromAddress },
+            to = new[] { new { email = to } },
+            subject,
+            htmlContent = htmlBody,
+            textContent = textBody
+        };
+        using var request = new HttpRequestMessage(HttpMethod.Post, Endpoint)
+        {
+            Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(payload), System.Text.Encoding.UTF8, "application/json")
+        };
+        request.Headers.Add("api-key", _o.ApiKey);
+        request.Headers.Accept.ParseAdd("application/json");
+
+        using var response = await _http.CreateClient(ClientName).SendAsync(request, ct);
+        if (response.IsSuccessStatusCode) return;
+
+        var reply = await response.Content.ReadAsStringAsync(ct);
+        if (reply.Length > 300) reply = reply[..300];
+        throw new InvalidOperationException($"Brevo refused the message ({(int)response.StatusCode} {response.ReasonPhrase}): {reply}");
+    }
+}
+
+/// <summary>Used when no mail server or API key is configured (development): nothing leaves the machine; the message is logged.</summary>
 public class LoggingEmailSender : IEmailSender
 {
     private readonly ILogger<LoggingEmailSender> _log;

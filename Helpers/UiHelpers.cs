@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 using UncoveringGreatnessCRM.Domain;
+using UncoveringGreatnessCRM.Services;
 
 namespace UncoveringGreatnessCRM.Helpers;
 
@@ -59,6 +60,29 @@ public static class UiHelpers
     };
 
     public static string PriorityClass(TaskPriority p) => p.ToString().ToLowerInvariant();
+
+    /// <summary>Badge colour for the admin team-performance status (see <see cref="PerformanceRating"/>).</summary>
+    public static string PerformanceBadge(string status) => status switch
+    {
+        PerformanceRating.TopPerformer => "badge-green",
+        PerformanceRating.NeedsAttention => "badge-red",
+        PerformanceRating.OnTrack => "badge-blue",
+        _ => "badge-gray"
+    };
+
+    /// <summary>"42.5%" or an em dash when there is nothing to measure yet.</summary>
+    public static string Pct(double? v) => v.HasValue ? v.Value.ToString("0.#", CultureInfo.InvariantCulture) + "%" : "—";
+
+    public static string Days(double? v) => v.HasValue ? v.Value.ToString("0.#", CultureInfo.InvariantCulture) + " d" : "—";
+
+    public static string RelativeUtcOrDash(DateTime? utc) => utc.HasValue ? RelativeUtc(utc.Value) : "—";
+
+    /// <summary>Width of a bar as a whole percentage of the biggest bar (never negative, never above 100, always at least 2 when there is a value).</summary>
+    public static int BarPct(decimal value, decimal max)
+    {
+        if (value <= 0 || max <= 0) return 0;
+        return (int)Math.Clamp(Math.Round(value / max * 100m), 2m, 100m);
+    }
 
     public static string DateShort(DateTime? d) => d.HasValue ? d.Value.ToString("d MMM yyyy", CultureInfo.InvariantCulture) : "—";
 

@@ -176,3 +176,53 @@ public class FormPayloadParserTests
         Assert.False(string.IsNullOrEmpty(error));
     }
 }
+
+public class PerformanceRatingTests
+{
+    [Fact]
+    public void Someone_with_no_leads_is_reported_as_having_none()
+    {
+        var (status, _) = PerformanceRating.Evaluate(0, 0, 0, 0, 0, null, false);
+        Assert.Equal(PerformanceRating.NoLeads, status);
+    }
+
+    [Fact]
+    public void Three_or_more_overdue_follow_ups_needs_attention()
+    {
+        var (status, reason) = PerformanceRating.Evaluate(10, 8, PerformanceRating.OverdueFollowUpLimit, 0, 2, 50, true);
+        Assert.Equal(PerformanceRating.NeedsAttention, status); // even the month's best seller is flagged
+        Assert.Contains("overdue", reason);
+    }
+
+    [Fact]
+    public void Two_overdue_follow_ups_is_still_on_track()
+    {
+        var (status, _) = PerformanceRating.Evaluate(10, 8, PerformanceRating.OverdueFollowUpLimit - 1, 0, 2, 50, false);
+        Assert.Equal(PerformanceRating.OnTrack, status);
+    }
+
+    [Fact]
+    public void Half_the_open_leads_going_cold_needs_attention()
+    {
+        var (status, reason) = PerformanceRating.Evaluate(10, 6, 0, 3, 0, null, false);
+        Assert.Equal(PerformanceRating.NeedsAttention, status);
+        Assert.Contains("not contacted", reason);
+    }
+
+    [Fact]
+    public void A_low_win_rate_only_counts_once_enough_deals_have_closed()
+    {
+        var early = PerformanceRating.Evaluate(5, 3, 0, 0, PerformanceRating.MinClosedForWinRate - 1, 0, false);
+        Assert.Equal(PerformanceRating.OnTrack, early.Status);
+
+        var enough = PerformanceRating.Evaluate(5, 2, 0, 0, PerformanceRating.MinClosedForWinRate, 10, false);
+        Assert.Equal(PerformanceRating.NeedsAttention, enough.Status);
+    }
+
+    [Fact]
+    public void Healthy_person_with_the_best_month_is_the_top_performer()
+    {
+        var (status, _) = PerformanceRating.Evaluate(12, 9, 0, 0, 4, 60, true);
+        Assert.Equal(PerformanceRating.TopPerformer, status);
+    }
+}

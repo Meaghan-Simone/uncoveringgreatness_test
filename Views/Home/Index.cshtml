@@ -14,6 +14,15 @@
   }
 </div>
 
+@if (Me.IsAdmin)
+{
+  <div class="readonly-banner"><i class="bi bi-eye"></i> Admin view: every figure on this page covers all leads, tasks and activity from every team member. Reps only ever see their own.</div>
+}
+else
+{
+  <div class="readonly-banner"><i class="bi bi-person-check"></i> These figures cover only the leads assigned to you.</div>
+}
+
 <div class="grid grid-4" style="margin-bottom:20px">
   <div class="card kpi">
     <div class="kpi-top"><span class="kpi-label">Active leads</span><span class="kpi-icon gold"><i class="bi bi-people"></i></span></div>
@@ -37,6 +46,166 @@
   </div>
 </div>
 
+@if (Model.Team != null)
+{
+  var tm = Model.Team;
+  var tmStages = Enum.GetValues<LeadStage>().Where(x => x != LeadStage.ClosedLost).ToList();
+  var tmMaxWon = tm.Reps.Count == 0 ? 0m : tm.Reps.Max(x => x.WonMtdValue);
+  var tmMaxStack = tm.Reps.Count == 0 ? 0 : tm.Reps.Max(x => x.Stages.Sum(s1 => s1.Count));
+  var tmMaxTrend = tm.Trend.Count == 0 ? 1 : Math.Max(1, tm.Trend.Max(x => Math.Max(x.NewLeads, x.Won)));
+  var tmMaxSource = tm.Sources.Count == 0 ? 1 : Math.Max(1, tm.Sources.Max(x => x.Count));
+  var tmAllLeads = tm.OpenCount + tm.WonCount + tm.LostCount;
+  var tmWonEnd = tmAllLeads == 0 ? 0 : (int)Math.Round(tm.WonCount * 100.0 / tmAllLeads);
+  var tmLostEnd = tmAllLeads == 0 ? 0 : (int)Math.Round((tm.WonCount + tm.LostCount) * 100.0 / tmAllLeads);
+
+  <div class="section-head"><h3>Team performance</h3><p>Every person's results side by side, so you can see who is delivering and who needs support.</p></div>
+
+  <div class="grid grid-4" style="margin-bottom:20px">
+    <div class="card kpi">
+      <div class="kpi-top"><span class="kpi-label">Team win rate</span><span class="kpi-icon green"><i class="bi bi-bullseye"></i></span></div>
+      <div class="kpi-value">@UiHelpers.Pct(tm.WinRatePct)</div>
+      <div class="kpi-trend">@tm.WonCount <span>won</span> &middot; @tm.LostCount <span>lost</span></div>
+    </div>
+    <div class="card kpi">
+      <div class="kpi-top"><span class="kpi-label">Unassigned open leads</span><span class="kpi-icon violet"><i class="bi bi-exclamation-triangle"></i></span></div>
+      <div class="kpi-value">@tm.UnassignedOpenLeads</div>
+      <div class="kpi-trend @(tm.UnassignedOpenLeads > 0 ? "down" : "")">@UiHelpers.MoneyShort(tm.UnassignedOpenValue) <span>open value with no owner</span></div>
+    </div>
+    <div class="card kpi">
+      <div class="kpi-top"><span class="kpi-label">Team activity (30 days)</span><span class="kpi-icon blue"><i class="bi bi-activity"></i></span></div>
+      <div class="kpi-value">@tm.Activity30d</div>
+      <div class="kpi-trend"><span>calls, notes and stage changes logged</span></div>
+    </div>
+    <div class="card kpi">
+      <div class="kpi-top"><span class="kpi-label">Average won deal</span><span class="kpi-icon gold"><i class="bi bi-cash-stack"></i></span></div>
+      <div class="kpi-value">@UiHelpers.MoneyShort(tm.AvgWonDeal)</div>
+      <div class="kpi-trend"><span>across all closed-won deals</span></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:20px">
+    <div class="card-head"><div><h3>Performance by person</h3><p>Select a row to open that person's leads.</p></div></div>
+    <div class="table-wrap"><table class="perf-table">
+      <caption class="sr-only">Performance of each team member</caption>
+      <thead><tr><th>Person</th><th>Status</th><th class="text-right">Open leads</th><th class="text-right">Pipeline</th><th class="text-right">Won this month</th><th class="text-right">Win rate</th><th class="text-right">Avg days to win</th><th class="text-right">Overdue follow-ups</th><th class="text-right">Tasks open / overdue</th><th class="text-right">Activity (30d)</th><th>Last sign-in</th></tr></thead>
+      <tbody>
+      @foreach (var r in tm.Reps)
+      {
+        <tr class="row-link" data-href="@Url.Action("Index", "Leads", new { assignedToId = r.UserId })">
+          <td><div class="cell-name"><span class="avatar">@UiHelpers.Initials(r.Name)</span><div><strong>@r.Name</strong><span>@r.Role.Label()</span>@if (!r.IsActive){<span> &middot; deactivated</span>}</div></div></td>
+          <td><span class="badge @UiHelpers.PerformanceBadge(r.Status)">@r.Status</span><div class="perf-reason">@r.StatusReason</div></td>
+          <td class="text-right">@r.OpenLeads</td>
+          <td class="text-right mono">@UiHelpers.MoneyShort(r.PipelineValue)</td>
+          <td class="text-right"><strong class="mono">@UiHelpers.MoneyShort(r.WonMtdValue)</strong><div class="perf-sub">@r.WonMtdCount deal@(r.WonMtdCount == 1 ? "" : "s")</div></td>
+          <td class="text-right">@UiHelpers.Pct(r.WinRatePct)<div class="perf-sub">@r.WonCount won &middot; @r.LostCount lost</div></td>
+          <td class="text-right">@UiHelpers.Days(r.AvgDaysToWin)</td>
+          <td class="text-right"><span class="@(r.OverdueFollowUps > 0 ? "num-bad" : "")">@r.OverdueFollowUps</span></td>
+          <td class="text-right">@r.OpenTasks / <span class="@(r.OverdueTasks > 0 ? "num-bad" : "")">@r.OverdueTasks</span></td>
+          <td class="text-right">@r.Activity30d</td>
+          <td class="text-muted">@UiHelpers.RelativeUtcOrDash(r.LastLoginUtc)</td>
+        </tr>
+      }
+      @if (tm.Reps.Count == 0){<tr><td colspan="11" class="text-muted" style="padding:28px;text-align:center">No team members to show yet.</td></tr>}
+      </tbody></table></div>
+    <div class="perf-legend">
+      <strong>How the status is worked out.</strong>
+      <span class="badge badge-red">Needs attention</span> means @PerformanceRating.OverdueFollowUpLimit or more overdue follow-ups, half or more of their open leads not contacted for @PerformanceRating.StaleAfterDays days, or a win rate under @PerformanceRating.LowWinRatePct.ToString("0")% once @PerformanceRating.MinClosedForWinRate or more deals have closed.
+      <span class="badge badge-green">Top performer</span> is the highest closed-won value this month.
+      <span class="badge badge-blue">On track</span> is everyone else.
+    </div>
+  </div>
+
+  <div class="grid grid-12" style="margin-bottom:20px">
+    <div class="card span-6">
+      <div class="card-head"><div><h3>Closed won this month</h3><p>Value of deals each person has won since the 1st</p></div></div>
+      <div class="card-pad">
+        @if (tmMaxWon == 0){<p class="text-muted" style="font-size:13px;margin:0 0 14px">No deals have been closed this month yet.</p>}
+        @foreach (var r in tm.Reps)
+        {
+          <div class="bar-row">
+            <div class="bar-label"><span>@r.Name</span><span class="mono">@UiHelpers.Money(r.WonMtdValue) &middot; @r.WonMtdCount</span></div>
+            <div class="progress"><span style="width:@(UiHelpers.BarPct(r.WonMtdValue, tmMaxWon))%"></span></div>
+          </div>
+        }
+      </div>
+    </div>
+    <div class="card span-6">
+      <div class="card-head"><div><h3>Pipeline by person</h3><p>Number of leads at each stage</p></div></div>
+      <div class="card-pad">
+        <div class="stack-legend">
+          @foreach (var lg in tmStages){<span><i class="seg-dot @("stg-" + (int)lg)"></i>@lg.Label()</span>}
+        </div>
+        @foreach (var r in tm.Reps)
+        {
+          var tmTotal = r.Stages.Sum(s1 => s1.Count);
+          var tmTrack = tmMaxStack == 0 ? 0 : (int)Math.Round(tmTotal * 100.0 / tmMaxStack);
+          <div class="bar-row">
+            <div class="bar-label"><span>@r.Name</span><span class="mono">@tmTotal lead@(tmTotal == 1 ? "" : "s")</span></div>
+            <div class="stack-track"><div class="stack" style="width:@(tmTrack)%">
+              @foreach (var sg in r.Stages.Where(s2 => s2.Count > 0)){<span class="seg @("stg-" + (int)sg.Stage)" style="flex:@sg.Count" title="@(sg.Stage.Label()): @sg.Count"></span>}
+            </div></div>
+            <div class="stack-counts">@foreach (var sc in r.Stages){<span>@sc.Stage.Label() @sc.Count</span>}</div>
+          </div>
+        }
+      </div>
+    </div>
+  </div>
+
+  <div class="grid grid-12" style="margin-bottom:28px">
+    <div class="card span-7">
+      <div class="card-head"><div><h3>Last 6 months</h3><p>New leads created and deals won, across the whole team</p></div>
+        <div class="chart-key"><span><i class="seg-dot key-new"></i>New leads</span><span><i class="seg-dot key-won"></i>Won</span></div></div>
+      <div class="card-pad">
+        <div class="col-chart">
+          @foreach (var mp in tm.Trend)
+          {
+            var hNew = mp.NewLeads == 0 ? 0 : Math.Max(3, mp.NewLeads * 100 / tmMaxTrend);
+            var hWon = mp.Won == 0 ? 0 : Math.Max(3, mp.Won * 100 / tmMaxTrend);
+            <div class="col-group">
+              <div class="col-bars">
+                <span class="col-bar new" style="height:@(hNew)%" title="@mp.NewLeads new leads"></span>
+                <span class="col-bar won" style="height:@(hWon)%" title="@mp.Won won"></span>
+              </div>
+              <div class="col-label">@mp.Label</div>
+              <div class="col-nums"><span>@mp.NewLeads new</span><span>@mp.Won won</span><span>@UiHelpers.MoneyShort(mp.WonValue)</span></div>
+            </div>
+          }
+        </div>
+      </div>
+    </div>
+    <div class="span-5" style="display:flex;flex-direction:column;gap:20px">
+      <div class="card">
+        <div class="card-head"><div><h3>Lead outcomes</h3><p>Every lead in the system</p></div></div>
+        <div class="card-pad donut-wrap">
+          <div class="donut" style="background:conic-gradient(var(--green-600) 0% @(tmWonEnd)%, var(--red-600) @(tmWonEnd)% @(tmLostEnd)%, var(--text-400) @(tmLostEnd)% 100%)" role="img" aria-label="@tm.WonCount won, @tm.LostCount lost, @tm.OpenCount still open">
+            <div class="donut-hole"><strong>@tmAllLeads</strong><span>leads</span></div>
+          </div>
+          <ul class="donut-legend">
+            <li><i class="seg-dot" style="background:var(--green-600)"></i>Won <strong>@tm.WonCount</strong></li>
+            <li><i class="seg-dot" style="background:var(--red-600)"></i>Lost <strong>@tm.LostCount</strong></li>
+            <li><i class="seg-dot" style="background:var(--text-400)"></i>Still open <strong>@tm.OpenCount</strong></li>
+          </ul>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><div><h3>Where leads come from</h3><p>Leads and wins by source</p></div></div>
+        <div class="card-pad">
+          @if (tm.Sources.Count == 0){<p class="text-muted" style="font-size:13px;margin:0">No leads yet.</p>}
+          @foreach (var src in tm.Sources)
+          {
+            <div class="bar-row">
+              <div class="bar-label"><span>@src.Source.Label()</span><span class="mono">@src.Count &middot; @src.Won won</span></div>
+              <div class="progress"><span style="width:@(src.Count * 100 / tmMaxSource)%"></span></div>
+            </div>
+          }
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-head"><h3>Pipeline overview</h3><p>All open deals, follow-ups and recent leads across the team.</p></div>
+}
+
 <div class="grid grid-12" style="margin-bottom:20px">
   <div class="card span-8">
     <div class="card-head"><div><h3>Pipeline by stage</h3><p>Value of open deals at each stage</p></div><a asp-controller="Leads" asp-action="Pipeline" class="btn btn-ghost btn-sm">Open pipeline <i class="bi bi-arrow-right"></i></a></div>
@@ -58,7 +227,7 @@
       @foreach (var f in Model.FollowUps)
       {
         <div class="cal-agenda-item">
-          <div class="cal-agenda-body" style="flex:1"><strong><a asp-controller="Leads" asp-action="Details" asp-route-id="@f.Id">@f.FullName</a></strong><p>@f.CompanyName · @UiHelpers.RelativeDate(f.NextFollowUp)</p></div>
+          <div class="cal-agenda-body" style="flex:1"><strong><a asp-controller="Leads" asp-action="Details" asp-route-id="@f.Id">@f.FullName</a></strong><p>@f.CompanyName · @UiHelpers.RelativeDate(f.NextFollowUp)@(Me.IsAdmin ? " · " + (f.AssignedToName ?? "Unassigned") : "")</p></div>
           <span class="badge @(f.NextFollowUp < Clock.LocalToday ? "badge-red" : "badge-amber")">@(f.NextFollowUp < Clock.LocalToday ? "Overdue" : "Due")</span>
         </div>
       }
@@ -70,17 +239,18 @@
   <div class="card span-7">
     <div class="card-head"><div><h3>Recent leads</h3></div><a asp-controller="Leads" asp-action="Index" class="btn btn-ghost btn-sm">View all</a></div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Lead</th><th>Stage</th><th class="text-right">Value</th></tr></thead>
+      <thead><tr><th>Lead</th><th>Stage</th>@if (Me.IsAdmin){<th>Owner</th>}<th class="text-right">Value</th></tr></thead>
       <tbody>
       @foreach (var l in Model.RecentLeads)
       {
         <tr class="row-link" data-href="@Url.Action("Details", "Leads", new { id = l.Id })">
           <td><div class="cell-name"><span class="avatar">@UiHelpers.Initials(l.FullName)</span><div><strong>@l.FullName</strong><span>@(l.CompanyName ?? "—")</span></div></div></td>
           <td><span class="badge @UiHelpers.StageBadge(l.Stage)">@l.Stage.Label()</span></td>
+          @if (Me.IsAdmin){<td>@(l.AssignedToName ?? "Unassigned")</td>}
           <td class="text-right mono">@UiHelpers.Money(l.DealValue)</td>
         </tr>
       }
-      @if (Model.RecentLeads.Count == 0){<tr><td colspan="3" class="text-muted" style="padding:28px;text-align:center">No leads yet.</td></tr>}
+      @if (Model.RecentLeads.Count == 0){<tr><td colspan="@(Me.IsAdmin ? 4 : 3)" class="text-muted" style="padding:28px;text-align:center">No leads yet.</td></tr>}
       </tbody></table></div>
   </div>
   <div class="span-5" style="display:flex;flex-direction:column;gap:20px">

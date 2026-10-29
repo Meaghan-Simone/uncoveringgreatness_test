@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using UncoveringGreatnessCRM.Data;
 using UncoveringGreatnessCRM.Domain;
@@ -62,7 +63,115 @@ public class DashboardService
             if (board.Succeeded)
                 dto.MyTasks = board.Value!.Overdue.Concat(board.Value.DueToday).Concat(board.Value.Upcoming).Where(t => t.AssignedToId == myId).Take(5).ToList();
         }
+
+        // Only admins get the per-person breakdown; it reads every lead, so it must never run for anyone else.
+        if (_me.IsAdmin) dto.Team = await BuildTeamAsync(monthStartUtc);
         return dto;
+    }
+
+    /// <summary>
+    /// Admin-only: one row per person who owns (or can own) leads, plus team-wide trend and source figures.
+    /// Rows are loaded as lean projections and totalled in memory because SQLite cannot SUM decimal columns in SQL.
+    /// </summary>
+    private async Task<TeamSummary?> BuildTeamAsync(DateTime monthStartUtc)
+    {
+        if (!_me.IsAdmin) return null;
+
+        var now = DateTime.UtcNow;
+        var today = Clock.LocalToday;
+        var since30 = now.AddDays(-30);
+        var staleBefore = now.AddDays(-PerformanceRating.StaleAfterDays);
+
+        var users = await _db.Users.AsNoTracking().Where(u => u.Role != UserRole.Staff)
+            .Select(u => new { u.Id, u.FullName, u.Role, u.IsActive, u.LastLoginUtc }).ToListAsync();
+        var leads = await _db.Leads.AsNoTracking()
+            .Select(l => new { l.AssignedToId, l.Stage, l.DealValue, l.Source, l.CreatedUtc, l.ClosedUtc, l.NextFollowUp, l.LastContactedUtc }).ToListAsync();
+        var tasks = await _db.Tasks.AsNoTracking()
+            .Select(t => new { t.AssignedToId, t.IsCompleted, t.DueAt, t.CompletedUtc }).ToListAsync();
+        var acts = await _db.LeadActivities.AsNoTracking()
+            .Where(a => a.UserId != null && a.CreatedUtc >= since30
+                        && (a.Type == ActivityType.CallLogged || a.Type == ActivityType.NoteAdded || a.Type == ActivityType.EmailSent || a.Type == ActivityType.StageChanged))
+            .Select(a => new { a.UserId, a.CreatedUtc }).ToListAsync();
+
+        var reps = new List<RepPerformance>();
+        foreach (var u in users)
+        {
+            var mine = leads.Where(l => l.AssignedToId == u.Id).ToList();
+            var myTasks = tasks.Where(t => t.AssignedToId == u.Id).ToList();
+            // Hide people who have nothing to measure (an inactive account, or an admin who doesn't own leads or tasks).
+            if (mine.Count == 0 && (!u.IsActive || (u.Role == UserRole.Admin && myTasks.Count == 0))) continue;
+
+            var open = mine.Where(l => l.Stage < LeadStage.ClosedWon).ToList();
+            var won = mine.Where(l => l.Stage == LeadStage.ClosedWon).ToList();
+            var lost = mine.Count(l => l.Stage == LeadStage.ClosedLost);
+            var wonMtd = won.Where(l => l.ClosedUtc >= monthStartUtc).ToList();
+            var closed = won.Count + lost;
+            var cycle = won.Where(l => l.ClosedUtc.HasValue).Select(l => Math.Max(0, (l.ClosedUtc!.Value - l.CreatedUtc).TotalDays)).ToList();
+
+            reps.Add(new RepPerformance
+            {
+                UserId = u.Id, Name = u.FullName, Role = u.Role, IsActive = u.IsActive, LastLoginUtc = u.LastLoginUtc,
+                TotalLeads = mine.Count,
+                OpenLeads = open.Count,
+                PipelineValue = open.Sum(l => l.DealValue),
+                NewThisMonth = mine.Count(l => l.CreatedUtc >= monthStartUtc),
+                WonCount = won.Count,
+                LostCount = lost,
+                WonValue = won.Sum(l => l.DealValue),
+                WonMtdCount = wonMtd.Count,
+                WonMtdValue = wonMtd.Sum(l => l.DealValue),
+                WinRatePct = closed == 0 ? null : Math.Round(won.Count * 100.0 / closed, 1),
+                AvgDaysToWin = cycle.Count == 0 ? null : Math.Round(cycle.Average(), 1),
+                OverdueFollowUps = open.Count(l => l.NextFollowUp != null && l.NextFollowUp < today),
+                StaleLeads = open.Count(l => (l.LastContactedUtc ?? l.CreatedUtc) < staleBefore),
+                OpenTasks = myTasks.Count(t => !t.IsCompleted),
+                OverdueTasks = myTasks.Count(t => !t.IsCompleted && t.DueAt != null && t.DueAt.Value.Date < today),
+                TasksCompleted30d = myTasks.Count(t => t.IsCompleted && t.CompletedUtc >= since30),
+                Activity30d = acts.Count(a => a.UserId == u.Id),
+                Stages = Enum.GetValues<LeadStage>().Where(st => st != LeadStage.ClosedLost)
+                    .Select(st => new StageStat(st, mine.Count(l => l.Stage == st), mine.Where(l => l.Stage == st).Sum(l => l.DealValue))).ToList()
+            });
+        }
+
+        // Rating needs the whole team's month first, to know who is on top.
+        var bestMonth = reps.Count == 0 ? 0m : reps.Max(r => r.WonMtdValue);
+        foreach (var r in reps)
+        {
+            var (status, reason) = PerformanceRating.Evaluate(r.TotalLeads, r.OpenLeads, r.OverdueFollowUps, r.StaleLeads,
+                r.WonCount + r.LostCount, r.WinRatePct, bestMonth > 0 && r.WonMtdValue == bestMonth);
+            r.Status = status; r.StatusReason = reason;
+        }
+        reps = reps.OrderByDescending(r => r.WonMtdValue).ThenByDescending(r => r.PipelineValue).ThenBy(r => r.Name).ToList();
+
+        var trend = new List<MonthPoint>();
+        for (var i = 5; i >= 0; i--)
+        {
+            var start = monthStartUtc.AddMonths(-i);
+            var end = start.AddMonths(1);
+            var wonInMonth = leads.Where(l => l.Stage == LeadStage.ClosedWon && l.ClosedUtc >= start && l.ClosedUtc < end).ToList();
+            trend.Add(new MonthPoint(start.ToString("MMM", CultureInfo.InvariantCulture),
+                leads.Count(l => l.CreatedUtc >= start && l.CreatedUtc < end), wonInMonth.Count, wonInMonth.Sum(l => l.DealValue)));
+        }
+
+        var sources = Enum.GetValues<LeadSource>()
+            .Select(src => new SourceStat(src, leads.Count(l => l.Source == src), leads.Count(l => l.Source == src && l.Stage == LeadStage.ClosedWon)))
+            .Where(x => x.Count > 0).OrderByDescending(x => x.Count).ToList();
+
+        var allWon = leads.Where(l => l.Stage == LeadStage.ClosedWon).ToList();
+        var allLost = leads.Count(l => l.Stage == LeadStage.ClosedLost);
+        var unassigned = leads.Where(l => l.AssignedToId == null && l.Stage < LeadStage.ClosedWon).ToList();
+        return new TeamSummary
+        {
+            Reps = reps, Trend = trend, Sources = sources,
+            OpenCount = leads.Count(l => l.Stage < LeadStage.ClosedWon),
+            WonCount = allWon.Count,
+            LostCount = allLost,
+            WinRatePct = allWon.Count + allLost == 0 ? null : Math.Round(allWon.Count * 100.0 / (allWon.Count + allLost), 1),
+            AvgWonDeal = allWon.Count == 0 ? 0m : Math.Round(allWon.Sum(l => l.DealValue) / allWon.Count, 0),
+            Activity30d = acts.Count,
+            UnassignedOpenLeads = unassigned.Count,
+            UnassignedOpenValue = unassigned.Sum(l => l.DealValue)
+        };
     }
 
     private System.Linq.Expressions.Expression<Func<Lead, LeadListItem>> Project(int myId) =>

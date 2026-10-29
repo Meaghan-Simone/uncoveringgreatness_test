@@ -135,6 +135,27 @@ public class LeadVisibilityApiTests
         Assert.Equal(HttpStatusCode.Forbidden, (await rep.GetAsync("/api/v1/users")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await rep.GetAsync("/api/v1/audit")).StatusCode);
     }
+
+    [Fact]
+    public async Task Admin_dashboard_breaks_results_down_by_person_and_reps_do_not_get_it()
+    {
+        var admin = await _f.ClientForAsync(CrmFactory.AdminEmail);
+        var rep = await _f.ClientForAsync(CrmFactory.RepEmail);
+
+        var adminDash = await JsonAsync(await admin.GetAsync("/api/v1/dashboard"));
+        var team = adminDash.GetProperty("team");
+        Assert.Equal(JsonValueKind.Object, team.ValueKind);
+
+        var reps = team.GetProperty("reps");
+        Assert.True(reps.GetArrayLength() >= 2, "the admin should see more than one person");
+        var assignedAcrossTeam = reps.EnumerateArray().Sum(r => r.GetProperty("totalLeads").GetInt32());
+        Assert.True(assignedAcrossTeam > 0);
+        Assert.True(assignedAcrossTeam <= adminDash.GetProperty("totalLeads").GetInt32());
+        Assert.All(reps.EnumerateArray(), r => Assert.False(string.IsNullOrEmpty(r.GetProperty("status").GetString())));
+
+        var repDash = await JsonAsync(await rep.GetAsync("/api/v1/dashboard"));
+        Assert.Equal(JsonValueKind.Null, repDash.GetProperty("team").ValueKind);
+    }
 }
 
 [Collection("crm")]
@@ -170,6 +191,20 @@ public class UserManagementApiTests
 
         var audit = await admin.GetFromJsonAsync<JsonElement>("/api/v1/audit?action=UserDeleted");
         Assert.True(audit.GetProperty("totalCount").GetInt32() >= 1);
+    }
+
+    [Fact]
+    public async Task Audit_log_filter_by_action_works_and_unfiltered_list_is_not_empty()
+    {
+        var admin = await _f.ClientForAsync(CrmFactory.AdminEmail); // signing in writes LoginSuccess entries
+        var all = await admin.GetFromJsonAsync<JsonElement>("/api/v1/audit");
+        Assert.True(all.GetProperty("totalCount").GetInt32() >= 1);
+
+        var filtered = await admin.GetFromJsonAsync<JsonElement>("/api/v1/audit?action=LoginSuccess");
+        Assert.True(filtered.GetProperty("totalCount").GetInt32() >= 1);
+
+        var none = await admin.GetFromJsonAsync<JsonElement>("/api/v1/audit?action=NoSuchAction");
+        Assert.Equal(0, none.GetProperty("totalCount").GetInt32());
     }
 
     [Fact]

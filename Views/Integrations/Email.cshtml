@@ -1,0 +1,96 @@
+@model EmailStatusVm
+@{ ViewData["Title"] = "Email delivery"; ViewData["Eyebrow"] = "Admin"; }
+<div class="page-head">
+  <div><h2>Email delivery</h2><p>Check that the CRM can really send email. Password resets, reminders, notifications and campaigns all depend on it.</p></div>
+  <div class="page-actions"><a asp-action="Index" class="btn btn-outline"><i class="bi bi-arrow-left"></i> Form integrations</a></div>
+</div>
+
+@if (!Model.Configured)
+{
+  <div class="flash info" role="status" style="margin-bottom:20px"><i class="bi bi-info-circle"></i> No mail server or Brevo key is set up yet, so every email is only written to the server log and nobody receives it. Follow the steps at the bottom of this page, restart the app, then send a test email.</div>
+}
+
+<div class="grid grid-12" style="margin-bottom:20px">
+  <div class="card span-7">
+    <div class="card-head">
+      <div><h3>Current settings</h3><p>Read from the server's configuration. The password is never shown.</p></div>
+      @if (Model.Configured){<span class="badge badge-green">Ready to send</span>}else{<span class="badge badge-amber">Not set up</span>}
+    </div>
+    <div class="card-pad">
+      <dl class="kv">
+        <dt>Sending method</dt><dd>@(Model.UsesApi ? "Brevo over HTTPS (works on free hosting)" : "SMTP mail server")</dd>
+        @if (Model.UsesApi)
+        {
+          <dt>Brevo API key</dt><dd>@(Model.HasApiKey ? "Set" : "Not set")</dd>
+        }
+        else
+        {
+          <dt>Mail server</dt><dd>@(string.IsNullOrWhiteSpace(Model.Host) ? "Not set" : Model.Host)</dd>
+          <dt>Port</dt><dd>@(Model.Port + (Model.Port == 465 ? " (465 is not supported here, use 587)" : ""))</dd>
+          <dt>Secure connection</dt><dd>@(Model.UseSsl ? "On (STARTTLS)" : "Off")</dd>
+          <dt>Username</dt><dd>@(string.IsNullOrWhiteSpace(Model.Username) ? "None" : Model.Username)</dd>
+          <dt>Password</dt><dd>@(Model.HasPassword ? "Set" : "Not set")</dd>
+        }
+        <dt>Emails are sent from</dt><dd>@Model.FromName &lt;@Model.FromAddress&gt;</dd>
+        <dt>Public address of the CRM</dt><dd>@(string.IsNullOrWhiteSpace(Model.PublicBaseUrl) ? "Not set: links in emails use whatever address the page was opened on" : Model.PublicBaseUrl)</dd>
+      </dl>
+      <div class="divider"></div>
+      <p style="margin:0 0 8px;font-weight:600;color:var(--text-900)">What gets emailed</p>
+      <ul style="margin:0;padding-left:18px;font-size:13.5px;line-height:1.8;color:var(--text-600)">
+        <li>Password reset links: always</li>
+        <li>Follow-up, task and calendar reminders (one summary per person): @(Model.ReminderEmailsOn ? "on" : "off")</li>
+        <li>New lead assigned, new form lead, deal won, task assigned, calendar entry shared: @(Model.NotificationEmailsOn ? "on" : "off")</li>
+        <li>Marketing campaigns: when you press Send on a campaign</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card span-5">
+    <div class="card-head"><div><h3>Send a test email</h3><p>Sends one real message now and shows exactly what the mail server answers.</p></div></div>
+    <form asp-action="SendTestEmail" method="post" class="card-pad" novalidate>
+      <div class="field">
+        <label for="to">Send the test to</label>
+        <input id="to" name="to" type="email" value="@Model.SuggestedTo" maxlength="200" autocomplete="email">
+      </div>
+      <button type="submit" class="btn btn-green"><i class="bi bi-send"></i> Send test email</button>
+      <p class="text-muted" style="font-size:12.5px;margin:12px 0 0">If it fails, the message below the page title explains why and what to change.</p>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><div><h3>How to set it up</h3><p>Two ways. Option A needs no SMTP port and works on Render's free plan. Option B is a normal SMTP mail server.</p></div></div>
+  <div class="card-pad" style="font-size:13.5px;line-height:1.7">
+    <p style="margin:0 0 8px;font-weight:700;color:var(--text-900)">Option A: Brevo over HTTPS (recommended for hosting)</p>
+    <ol style="padding-left:18px;margin:0 0 14px">
+      <li>Create a free Brevo account, then add and verify your sending address under <strong>Senders, Domains &amp; Dedicated IPs → Senders</strong>.</li>
+      <li>Under <strong>SMTP &amp; API → API keys</strong> create an API key and copy it.</li>
+      <li>Set these where the app runs (Render: Environment tab; on your computer: <code>dotnet user-secrets set</code>): <code>Email__Provider</code> = <code>Brevo</code>, <code>Email__ApiKey</code> = your key, <code>Email__FromAddress</code> = the verified sender, <code>Email__FromName</code> = the name people see. On your computer use the form <code>Email:ApiKey</code>.</li>
+      <li>Restart or redeploy, then press <strong>Send test email</strong>.</li>
+    </ol>
+    <p style="margin:0 0 8px;font-weight:700;color:var(--text-900)">Option B: SMTP mail server</p>
+    <ol style="padding-left:18px;margin:0 0 14px">
+      <li>Get the SMTP details from your mail provider: server, port <strong>587</strong>, username and password. Gmail and Microsoft 365 need an <strong>app password</strong>.</li>
+      <li>On your own computer, open PowerShell in the project folder and run these (change the values):</li>
+    </ol>
+    <pre style="background:var(--surface-2);border:1px solid var(--border);padding:12px;border-radius:8px;font-size:12.5px;overflow:auto;margin:0 0 14px">dotnet user-secrets set "Email:Host" "smtp.yourprovider.com"
+dotnet user-secrets set "Email:Port" "587"
+dotnet user-secrets set "Email:Username" "you@@yourdomain.co.za"
+dotnet user-secrets set "Email:Password" "your-smtp-password"
+dotnet user-secrets set "Email:FromAddress" "you@@yourdomain.co.za"</pre>
+    <ol start="3" style="padding-left:18px;margin:0 0 14px">
+      <li>Stop and start the app again (mail settings are read when it starts), then press <strong>Send test email</strong> above.</li>
+      <li>On a hosted site (for example Render) set the same values as environment variables instead: <code>Email__Host</code>, <code>Email__Port</code>, <code>Email__Username</code>, <code>Email__Password</code>, <code>Email__FromAddress</code>, and <code>App__PublicBaseUrl</code> to your public https address.</li>
+    </ol>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Provider</th><th>Server</th><th>Port</th><th>Username</th></tr></thead>
+      <tbody>
+        <tr><td>Gmail / Google Workspace</td><td class="mono">smtp.gmail.com</td><td>587</td><td>Full email address, with an app password</td></tr>
+        <tr><td>Microsoft 365</td><td class="mono">smtp.office365.com</td><td>587</td><td>Full email address</td></tr>
+        <tr><td>Brevo</td><td class="mono">smtp-relay.brevo.com</td><td>587</td><td>Your Brevo login, with the SMTP key as password</td></tr>
+        <tr><td>SendGrid</td><td class="mono">smtp.sendgrid.net</td><td>587</td><td><span class="mono">apikey</span>, with the API key as password</td></tr>
+      </tbody>
+    </table></div>
+    <p class="text-muted" style="font-size:12.5px;margin:10px 0 0">These are the usual settings; confirm them with your provider. Free hosting plans often block outgoing mail, so use a paid plan or a mail service on port 587.</p>
+  </div>
+</div>
