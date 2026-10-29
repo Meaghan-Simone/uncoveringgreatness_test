@@ -1,4 +1,5 @@
 # Render blueprint. A persistent disk and outbound SMTP both need a PAID instance (starter or higher).
+# Email without SMTP: set Email__Provider=Brevo and Email__ApiKey (HTTPS, works on any plan); leave Email__Host empty.
 services:
   - type: web
     name: uncovering-greatness-crm
@@ -31,6 +32,10 @@ services:
       - key: Seed__Users__3__Password
         sync: false
       - key: App__PublicBaseUrl                   # e.g. https://uncovering-greatness-crm.onrender.com or your own domain
+        sync: false
+      - key: Email__Provider                      # "Brevo" to send over HTTPS instead of SMTP
+        sync: false
+      - key: Email__ApiKey                        # Brevo API key (only for Email__Provider=Brevo)
         sync: false
       - key: Email__Host
         sync: false

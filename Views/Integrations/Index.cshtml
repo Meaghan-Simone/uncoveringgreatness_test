@@ -2,7 +2,7 @@
 @{ ViewData["Title"] = "Form integrations"; ViewData["Eyebrow"] = "Admin"; }
 <div class="page-head">
   <div><h2>Form integrations</h2><p>Link a Tally or Google Form and every submission becomes a lead automatically, assigned to your team.</p></div>
-  <div class="page-actions"><a asp-action="Create" class="btn btn-green"><i class="bi bi-plus-lg"></i> Connect a form</a></div>
+  <div class="page-actions"><a asp-action="Email" class="btn btn-outline"><i class="bi bi-envelope-check"></i> Email delivery</a><a asp-action="Create" class="btn btn-green"><i class="bi bi-plus-lg"></i> Connect a form</a></div>
 </div>
 @if (Model.Count == 0)
 {

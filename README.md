@@ -38,6 +38,9 @@ Without `Email:Host` emails are only logged (password resets, campaigns) so noth
 Set the `Email` section (SMTP host, port, credentials) to send for real, and set `App:PublicBaseUrl` to your public
 HTTPS address so links inside emails (reset, unsubscribe, open tracking) are correct.
 
+Full walkthrough (email, notifications and connecting Tally / Google Forms): [docs/EMAIL_AND_FORMS_SETUP.md](docs/EMAIL_AND_FORMS_SETUP.md).
+Admins can check delivery at any time under **Form integrations → Email delivery** (it sends a real test email and explains any failure).
+
 ## Roles
 
 | | Admin | Sales rep | Staff |

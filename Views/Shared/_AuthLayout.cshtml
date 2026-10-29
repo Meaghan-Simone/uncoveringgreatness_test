@@ -21,23 +21,23 @@
 <a class="skip-link" href="#main">Skip to main content</a>
 <div class="auth-wrap">
   <div class="auth-visual">
-    <div style="display:flex;align-items:center;gap:10px;position:relative;z-index:1">
-      <span class="brand-mark login-logo"><img src="~/Images/logo.png" alt="Uncovering Greatness Logo" /></span>
-      <span class="brand-text"><strong style="color:#fff">Uncovering Greatness</strong><span>CRM Platform</span></span>
+    <div class="auth-visual-brand">
+      <span class="brand-mark login-logo"><img src="~/Images/logo.png" alt="" /></span>
+      <span class="brand-text"><strong>Uncovering Greatness</strong><span>CRM Platform</span></span>
     </div>
     <div class="auth-quote">
       Supercharge Your Business Growth
       <span>Track the climb from first contact to closed won — across every event, every company, every conversation.</span>
     </div>
-    <svg class="peaks" viewBox="0 0 600 220" width="100%" height="220" preserveAspectRatio="none">
+    <svg class="peaks" aria-hidden="true" focusable="false" viewBox="0 0 600 220" width="100%" height="220" preserveAspectRatio="none">
       <polygon points="0,220 0,150 90,60 160,130 230,40 320,140 400,80 470,150 560,90 600,140 600,220" fill="rgba(198,150,47,0.16)"/>
       <polygon points="0,220 0,190 120,110 210,170 300,90 380,175 470,120 560,180 600,150 600,220" fill="rgba(255,255,255,0.06)"/>
     </svg>
   </div>
   <div class="auth-form-side">
     <div class="auth-box" role="main" id="main">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:28px">
-        <span class="brand-mark login-logo"><img src="~/Images/logo.png" alt="Uncovering Greatness Logo" /></span>
+      <div class="auth-brand">
+        <span class="brand-mark login-logo"><img src="~/Images/logo.png" alt="Uncovering Greatness logo" /></span>
         <span class="brand-text"><strong>Uncovering Greatness</strong><span>CRM Platform</span></span>
       </div>
       @{ var flash = TempData["flash"] as string; }

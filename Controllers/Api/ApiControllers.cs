@@ -309,7 +309,7 @@ public class UsersApiController : ApiBase
     [HttpPost("{id:int}/unlock")] public async Task<IActionResult> Unlock(int id) => From(await _users.UnlockAsync(id));
 
     [HttpGet("~/api/v1/audit")]
-    public async Task<IActionResult> Audit(string? q, string? action, int page = 1, int pageSize = 50) => Page(await _audit.SearchAsync(q, action, page, pageSize));
+    public async Task<IActionResult> Audit(string? q, [FromQuery(Name = "action")] string? actionFilter, int page = 1, int pageSize = 50) => Page(await _audit.SearchAsync(q, actionFilter, page, pageSize));
 }
 
 [Route("api/v1")]

@@ -178,12 +178,87 @@ public class DashboardDto
     public int TotalLeads { get; set; }
     public int TotalCompanies { get; set; }
     public int TotalEvents { get; set; }
+    /// <summary>Per-person performance across the whole team. Only filled in for admins; null for everyone else.</summary>
+    public TeamSummary? Team { get; set; }
 }
 public record StageStat(LeadStage Stage, int Count, decimal Value);
+
+/// <summary>One person's numbers on the admin dashboard.</summary>
+public class RepPerformance
+{
+    public int UserId { get; set; }
+    public string Name { get; set; } = "";
+    public UserRole Role { get; set; }
+    public bool IsActive { get; set; } = true;
+    public DateTime? LastLoginUtc { get; set; }
+    public int TotalLeads { get; set; }
+    public int OpenLeads { get; set; }
+    public decimal PipelineValue { get; set; }
+    public int NewThisMonth { get; set; }
+    public int WonCount { get; set; }
+    public int LostCount { get; set; }
+    public decimal WonValue { get; set; }
+    public int WonMtdCount { get; set; }
+    public decimal WonMtdValue { get; set; }
+    /// <summary>Won / (won + lost) as a percentage; null until the person has closed at least one lead.</summary>
+    public double? WinRatePct { get; set; }
+    /// <summary>Average days from lead creation to closed-won; null until they have a win.</summary>
+    public double? AvgDaysToWin { get; set; }
+    public int OverdueFollowUps { get; set; }
+    /// <summary>Open leads nobody has contacted for 14 days.</summary>
+    public int StaleLeads { get; set; }
+    public int OpenTasks { get; set; }
+    public int OverdueTasks { get; set; }
+    public int TasksCompleted30d { get; set; }
+    /// <summary>Calls, notes, emails and stage changes logged in the last 30 days.</summary>
+    public int Activity30d { get; set; }
+    public string Status { get; set; } = "";
+    public string StatusReason { get; set; } = "";
+    public List<StageStat> Stages { get; set; } = new();
+}
+
+public record MonthPoint(string Label, int NewLeads, int Won, decimal WonValue);
+public record SourceStat(LeadSource Source, int Count, int Won);
+
+public class TeamSummary
+{
+    public List<RepPerformance> Reps { get; set; } = new();
+    public List<MonthPoint> Trend { get; set; } = new();
+    public List<SourceStat> Sources { get; set; } = new();
+    public int OpenCount { get; set; }
+    public int WonCount { get; set; }
+    public int LostCount { get; set; }
+    public double? WinRatePct { get; set; }
+    public decimal AvgWonDeal { get; set; }
+    public int Activity30d { get; set; }
+    /// <summary>Open leads with no owner. Nobody but an admin can see these, so they need handing out.</summary>
+    public int UnassignedOpenLeads { get; set; }
+    public decimal UnassignedOpenValue { get; set; }
+}
 
 public class ImportResult
 {
     public int Created { get; set; }
     public int Skipped { get; set; }
     public List<string> Errors { get; set; } = new();
+}
+
+/// <summary>What the admin "Email delivery" page shows. The password itself is never exposed, only whether one is set.</summary>
+public class EmailStatusVm
+{
+    public bool Configured { get; set; }
+    /// <summary>True when sending goes through the Brevo HTTPS API instead of an SMTP server.</summary>
+    public bool UsesApi { get; set; }
+    public bool HasApiKey { get; set; }
+    public string? Host { get; set; }
+    public int Port { get; set; }
+    public bool UseSsl { get; set; }
+    public string? Username { get; set; }
+    public bool HasPassword { get; set; }
+    public string FromAddress { get; set; } = "";
+    public string FromName { get; set; } = "";
+    public string? PublicBaseUrl { get; set; }
+    public bool ReminderEmailsOn { get; set; }
+    public bool NotificationEmailsOn { get; set; }
+    public string SuggestedTo { get; set; } = "";
 }
